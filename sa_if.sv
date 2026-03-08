@@ -21,7 +21,7 @@ interface sa_if #(
   	logic b_preload_valid;
 	logic b_seed_valid;
 
-  clocking driver_cb @(negedge clk);
+	clocking driver_cb @(posedge clk);
         default input #1step output #0;
         output c_din;
         output a_din;
