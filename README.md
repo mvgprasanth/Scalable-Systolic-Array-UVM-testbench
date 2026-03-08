@@ -89,6 +89,3 @@ TEST PASSED
 3. Element values are constrained to `[-8, +7]` to avoid overflow
 4. Single clock domain at the SA module level
 
-## License
-
-This project was developed as a design verification assignment.
