@@ -1,6 +1,5 @@
 // ============================================================================
-// SA Level UVM Package
-// Contains: seq_item, sequences, driver, monitor, scoreboard, agent, env, tests
+// SA UVM Package
 // ============================================================================
 `ifndef SA_PKG_SV
 `define SA_PKG_SV
@@ -25,12 +24,12 @@ package sa_pkg;
     rand logic signed [DIN_WIDTH-1:0] B[][];
     logic signed [2*DIN_WIDTH-1:0]    C_exp[][];
 
-    // Back-to-back helper fields
     logic signed [DIN_WIDTH-1:0]      B_next[][];
     logic signed [DIN_WIDTH-1:0]      a_next00;
     bit                               has_bt;
     bit                               next_has_bt;
-	logic signed [DIN_WIDTH-1:0]      b_after_next00;
+    logic signed [DIN_WIDTH-1:0]      b_after_next00;
+
     constraint c_m    { M == N; }
     constraint c_a_sz { A.size() == N; foreach (A[i]) A[i].size() == N; }
     constraint c_b_sz { B.size() == N; foreach (B[i]) B[i].size() == N; }
@@ -97,16 +96,15 @@ package sa_pkg;
       sa_seq_item #(DIN_WIDTH,N) rhs_c;
       if (!$cast(rhs_c, rhs)) `uvm_fatal("CAST", "do_copy cast fail")
       super.do_copy(rhs);
-      M           = rhs_c.M;
-      A           = rhs_c.A;
-      B           = rhs_c.B;
-      C_exp       = rhs_c.C_exp;
-      B_next      = rhs_c.B_next;
-      a_next00    = rhs_c.a_next00;
-      has_bt      = rhs_c.has_bt;
-      next_has_bt = rhs_c.next_has_bt;
-      next_has_bt=rhs_c.next_has_bt;
-      b_after_next00=rhs_c.b_after_next00;
+      M              = rhs_c.M;
+      A              = rhs_c.A;
+      B              = rhs_c.B;
+      C_exp          = rhs_c.C_exp;
+      B_next         = rhs_c.B_next;
+      a_next00       = rhs_c.a_next00;
+      has_bt         = rhs_c.has_bt;
+      next_has_bt    = rhs_c.next_has_bt;
+      b_after_next00 = rhs_c.b_after_next00;
     endfunction
 
     virtual function bit do_compare(uvm_object rhs, uvm_comparer comparer);
@@ -154,6 +152,168 @@ package sa_pkg;
   endclass
 
   // =========================================================================
+  // Coverage Subscriber
+  // =========================================================================
+  class sa_cov_subscriber #(parameter int DIN_WIDTH=8, parameter int N=4)
+    extends uvm_subscriber #(sa_seq_item#(DIN_WIDTH,N));
+
+    `uvm_component_param_utils(sa_cov_subscriber#(DIN_WIDTH,N))
+
+    covergroup sa_cg with function sample(
+      int M_s,
+      bit has_bt_s,
+      bit next_has_bt_s,
+      int a00_s,
+      int b00_s,
+      bit zero_a_s,
+      bit zero_b_s,
+      bit all_same_a_s,
+      bit all_same_b_s,
+      bit identity_a_s
+    );
+      option.per_instance = 1;
+
+      cp_M: coverpoint M_s {
+        bins m_eq_n = {N};
+      }
+
+      cp_has_bt: coverpoint has_bt_s {
+        bins no_bt  = {0};
+        bins yes_bt = {1};
+      }
+
+      cp_next_has_bt: coverpoint next_has_bt_s {
+        bins no_next_bt  = {0};
+        bins yes_next_bt = {1};
+      }
+
+      cp_a00_sign: coverpoint a00_s {
+        bins neg  = {[-128:-1]};
+        bins zero = {0};
+        bins pos  = {[1:127]};
+      }
+
+      cp_b00_sign: coverpoint b00_s {
+        bins neg  = {[-128:-1]};
+        bins zero = {0};
+        bins pos  = {[1:127]};
+      }
+
+      cp_zero_a: coverpoint zero_a_s {
+        bins no  = {0};
+        bins yes = {1};
+      }
+
+      cp_zero_b: coverpoint zero_b_s {
+        bins no  = {0};
+        bins yes = {1};
+      }
+
+      cp_all_same_a: coverpoint all_same_a_s {
+        bins no  = {0};
+        bins yes = {1};
+      }
+
+      cp_all_same_b: coverpoint all_same_b_s {
+        bins no  = {0};
+        bins yes = {1};
+      }
+
+      cp_identity_a: coverpoint identity_a_s {
+        bins no  = {0};
+        bins yes = {1};
+      }
+
+      cross_bt_signs: cross cp_has_bt, cp_a00_sign, cp_b00_sign;
+      cross_specials: cross cp_zero_a, cp_zero_b, cp_identity_a, cp_has_bt;
+      cross_bt_chain: cross cp_has_bt, cp_next_has_bt {
+  bins middle_bt = binsof(cp_has_bt.yes_bt) && binsof(cp_next_has_bt.yes_next_bt);
+  bins tail_bt   = binsof(cp_has_bt.yes_bt) && binsof(cp_next_has_bt.no_next_bt);
+}
+      cross_all_same_both: cross cp_all_same_a, cp_all_same_b {
+  bins both_same = binsof(cp_all_same_a.yes) && binsof(cp_all_same_b.yes);
+}
+    endgroup
+
+    function new(string name, uvm_component parent);
+      super.new(name, parent);
+      sa_cg = new;
+    endfunction
+
+    function bit is_zero_matrix(logic signed [DIN_WIDTH-1:0] mat[][]);
+      foreach (mat[i,j]) begin
+        if (mat[i][j] != 0) return 0;
+      end
+      return 1;
+    endfunction
+
+    function bit is_all_same_matrix(logic signed [DIN_WIDTH-1:0] mat[][]);
+      logic signed [DIN_WIDTH-1:0] ref_val;
+      if (mat.size() == 0 || mat[0].size() == 0) return 0;
+      ref_val = mat[0][0];
+      foreach (mat[i,j]) begin
+        if (mat[i][j] != ref_val) return 0;
+      end
+      return 1;
+    endfunction
+
+    function bit is_identity_matrix(logic signed [DIN_WIDTH-1:0] mat[][]);
+      if (mat.size() != N) return 0;
+      foreach (mat[i]) begin
+        if (mat[i].size() != N) return 0;
+      end
+      foreach (mat[i,j]) begin
+        if (i == j) begin
+          if (mat[i][j] != 1) return 0;
+        end else begin
+          if (mat[i][j] != 0) return 0;
+        end
+      end
+      return 1;
+    endfunction
+
+    function void report_phase(uvm_phase phase);
+    real cov;
+    cov = sa_cg.get_inst_coverage();
+
+    `uvm_info("COV",
+      $sformatf("Stimulus functional coverage = %0.2f%%", cov),
+      UVM_NONE)
+
+    $display("\n================ COVERAGE REPORT ================");
+    $display("Stimulus functional coverage = %0.2f%%", cov);
+    $display("=================================================\n");
+
+endfunction
+    virtual function void write(sa_seq_item#(DIN_WIDTH,N) t);
+      int a00_v, b00_v;
+      bit zero_a_v, zero_b_v, all_same_a_v, all_same_b_v, identity_a_v;
+
+      a00_v = (t.A.size() > 0 && t.A[0].size() > 0) ? t.A[0][0] : 0;
+      b00_v = (t.B.size() > 0 && t.B[0].size() > 0) ? t.B[0][0] : 0;
+
+      zero_a_v     = is_zero_matrix(t.A);
+      zero_b_v     = is_zero_matrix(t.B);
+      all_same_a_v = is_all_same_matrix(t.A);
+      all_same_b_v = is_all_same_matrix(t.B);
+      identity_a_v = is_identity_matrix(t.A);
+
+      sa_cg.sample(
+        t.M,
+        t.has_bt,
+        t.next_has_bt,
+        a00_v,
+        b00_v,
+        zero_a_v,
+        zero_b_v,
+        all_same_a_v,
+        all_same_b_v,
+        identity_a_v
+      );
+    endfunction
+  endclass
+
+  // =========================================================================
   // Driver
   // =========================================================================
   class sa_driver #(parameter int DIN_WIDTH=8, parameter int N=4)
@@ -161,6 +321,7 @@ package sa_pkg;
 
     `uvm_component_param_utils(sa_driver#(DIN_WIDTH,N))
 
+    uvm_analysis_port #(sa_seq_item#(DIN_WIDTH,N)) stim_ap;
     virtual sa_if #(DIN_WIDTH,N) vif;
     bit d_skip_p12;
 
@@ -172,6 +333,7 @@ package sa_pkg;
       super.build_phase(phase);
       if (!uvm_config_db #(virtual sa_if#(DIN_WIDTH,N))::get(this,"","vif",vif))
         `uvm_fatal("CFG","No vif in sa_driver")
+      stim_ap = new("stim_ap", this);
     endfunction
 
     task run_phase(uvm_phase phase);
@@ -203,6 +365,12 @@ package sa_pkg;
 
     task drive_transaction(sa_seq_item #(DIN_WIDTH,N) item);
       automatic int M = item.M;
+
+      begin
+        sa_seq_item #(DIN_WIDTH,N) cov_item;
+        $cast(cov_item, item.clone());
+        stim_ap.write(cov_item);
+      end
 
       // ------------------------------------------------------------
       // Phase 1 + Phase 2
@@ -277,7 +445,7 @@ package sa_pkg;
           for (int j = 0; j < N; j++) begin
             automatic int brow = (N-1) - (cyc - j);
             if (j == 0) begin
-              if(item.next_has_bt)
+              if (item.next_has_bt)
                 vif.driver_cb.b_din[0] <= item.b_after_next00;
               else
                 vif.driver_cb.b_din[0] <= '0;
@@ -337,7 +505,6 @@ package sa_pkg;
 
   // =========================================================================
   // Monitor
-  // Supports overlapping outputs by spawning a capture thread per out_valid rise.
   // =========================================================================
   class sa_monitor #(parameter int DIN_WIDTH=8, parameter int N=4)
     extends uvm_monitor;
@@ -386,7 +553,6 @@ package sa_pkg;
       item.A = new[0];
       item.B = new[0];
 
-      // Beat 0 is on same sampled cycle as out_valid rise
       for (int j = 0; j < N; j++)
         c_capture[0][j] = vif.monitor_cb.c_dout[j];
 
@@ -533,6 +699,7 @@ package sa_pkg;
 
     sa_agent      #(DIN_WIDTH,N) m_agent;
     sa_scoreboard #(DIN_WIDTH,N) m_scb;
+    sa_cov_subscriber #(DIN_WIDTH,N) m_cov;
 
     function new(string name, uvm_component parent);
       super.new(name, parent);
@@ -540,12 +707,14 @@ package sa_pkg;
 
     function void build_phase(uvm_phase phase);
       super.build_phase(phase);
+      m_cov   = sa_cov_subscriber#(DIN_WIDTH,N)::type_id::create("m_cov", this);
       m_agent = sa_agent     #(DIN_WIDTH,N)::type_id::create("m_agent", this);
       m_scb   = sa_scoreboard#(DIN_WIDTH,N)::type_id::create("m_scb", this);
     endfunction
 
     function void connect_phase(uvm_phase phase);
       m_agent.ap.connect(m_scb.ap_act);
+      m_agent.m_drv.stim_ap.connect(m_cov.analysis_export);
     endfunction
   endclass
 
@@ -656,23 +825,23 @@ package sa_pkg;
         end
 
         // First set has_bt for all items
-          items[0].has_bt = 1;
-          items[1].has_bt = 1;
-          items[2].has_bt = 0;
+        items[0].has_bt = 1;
+        items[1].has_bt = 1;
+        items[2].has_bt = 0;
 
-          // Then wire the back-to-back metadata
-          items[0].B_next         = items[1].B;
-          items[0].a_next00       = items[1].A[0][0];
-          items[0].next_has_bt    = items[1].has_bt;      // now this is 1
-          items[0].b_after_next00 = items[2].B[N-1][0];
+        // Then wire the back-to-back metadata
+        items[0].B_next         = items[1].B;
+        items[0].a_next00       = items[1].A[0][0];
+        items[0].next_has_bt    = items[1].has_bt;
+        items[0].b_after_next00 = items[2].B[N-1][0];
 
-          items[1].B_next         = items[2].B;
-          items[1].a_next00       = items[2].A[0][0];
-          items[1].next_has_bt    = items[2].has_bt;      // 0
-          items[1].b_after_next00 = '0;
+        items[1].B_next         = items[2].B;
+        items[1].a_next00       = items[2].A[0][0];
+        items[1].next_has_bt    = items[2].has_bt;
+        items[1].b_after_next00 = '0;
 
-          items[2].next_has_bt    = 0;
-          items[2].b_after_next00 = '0;
+        items[2].next_has_bt    = 0;
+        items[2].b_after_next00 = '0;
 
         foreach (items[i]) m_env.m_scb.ap_exp.write(items[i]);
 
@@ -711,10 +880,7 @@ package sa_pkg;
       phase.drop_objection(this);
     endtask
   endclass
-
-  // =========================================================================
-  // Concrete aliases
-  // =========================================================================
+  
   class sa_directed_test_8_4 extends sa_directed_test#(8,4);
     `uvm_component_utils(sa_directed_test_8_4)
     function new(string name, uvm_component parent);
